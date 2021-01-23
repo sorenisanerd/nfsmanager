@@ -9,8 +9,9 @@ import (
 )
 
 type nfsOption struct {
-	optionString string
-	extra        []string
+	optionString     string
+	extra            []string
+	omitIfExtraEmpty bool
 }
 
 // Secure requires that requests originate on an Internet port less than
@@ -215,7 +216,9 @@ func MP(path string) nfsOption {
 	return opt
 }
 
-// FsID: NFS needs to be able to identify each filesystem that it
+// FsID defines an export's ID.
+//
+// NFS needs to be able to identify each filesystem that it
 // exports. Normally it will use a UUID for the filesystem (if the
 // filesystem has such a thing) or the device number of the device
 // holding the filesystem (if the filesystem is stored on the device).
@@ -251,25 +254,31 @@ var NoRDirPlus nfsOption = nfsOption{
 	optionString: "nordirplus",
 }
 
-// Refer: A client referencing the export point will be directed to
-// choose from the given list an alternative location for the
-// filesystem.  (Note that the server must have a mount‐point here,
-// though a different filesystem is not required; so, for example, mount
-// --bind /path /path is sufficient.)
-func Refer(references []string) nfsOption {
+// Refer specifies relocations
+//
+// A client referencing the export point will be directed to choose from
+// the given list an alternative location for the filesystem.  (Note
+// that the server must have a mount‐point here, though a different
+// filesystem is not required; so, for example, mount --bind /path /path
+// is sufficient.)
+func Refer(references ...string) nfsOption {
 	return nfsOption{
-		optionString: "refer",
-		extra:        references,
+		optionString:     "refer",
+		extra:            references,
+		omitIfExtraEmpty: true,
 	}
 }
 
-// Replicas: If the client asks for alternative locations for the export
-// point, it will be given this list of alternatives. (Note that actual
+// Replicas specifies replicas
+//
+// If the client asks for alternative locations for the export point, it
+// will be given this list of alternatives. (Note that actual
 // replication of the filesystem must be handled elsewhere.)
-func Replicas(replicas []string) nfsOption {
+func Replicas(replicas ...string) nfsOption {
 	return nfsOption{
-		optionString: "replicas",
-		extra:        replicas,
+		optionString:     "replicas",
+		extra:            replicas,
+		omitIfExtraEmpty: true,
 	}
 }
 
@@ -328,7 +337,11 @@ func AnonGID(gid int) nfsOption {
 }
 
 func (opt nfsOption) string() string {
-	return fmt.Sprintf("%s%s", opt.optionString, opt.extrasString())
+	extrasString := opt.extrasString()
+	if extrasString == "" && opt.omitIfExtraEmpty {
+		return ""
+	}
+	return fmt.Sprintf("%s%s", opt.optionString, extrasString)
 }
 
 func optionsString(options []nfsOption) string {
@@ -340,11 +353,13 @@ func optionsString(options []nfsOption) string {
 }
 
 func (opt nfsOption) extrasString() string {
-	if len(opt.extra) > 0 {
-		extras := make([]string, 0)
-		for _, extra := range opt.extra {
+	extras := make([]string, 0)
+	for _, extra := range opt.extra {
+		if extra != "" {
 			extras = append(extras, extra)
 		}
+	}
+	if len(extras) > 0 {
 		return "=" + strings.Join(extras, ":")
 	}
 	return ""
@@ -360,12 +375,20 @@ func exportFSCommandLine(path string, host string, options []nfsOption) []string
 	return cmd
 }
 
+type nfsManager struct {
+	Command func(name string, arg ...string) *exec.Cmd
+}
+
+func NFSManager() *nfsManager {
+	return &nfsManager{Command: exec.Command}
+}
+
 // ExportFs will export path to host with the given options.
 // Note: The export is not persisted to /etc/exports
-func ExportFs(path string, host string, options []nfsOption) error {
+func (n *nfsManager) ExportFs(path string, host string, options ...nfsOption) error {
 	cmdLine := exportFSCommandLine(path, host, options)
 
-	cmd := exec.Command(cmdLine[0], cmdLine[1:]...)
+	cmd := n.Command(cmdLine[0], cmdLine[1:]...)
 	_, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Command %v failed: %s", cmd, err)
@@ -374,7 +397,7 @@ func ExportFs(path string, host string, options []nfsOption) error {
 		copy(cmdLine[2:], cmdLine)
 		cmdLine[0] = "sudo"
 		cmdLine[1] = "-n"
-		cmd = exec.Command(cmdLine[0], cmdLine[1:]...)
+		cmd = n.Command(cmdLine[0], cmdLine[1:]...)
 		_, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Command %v failed with sudo as well: %s", cmd, err)
