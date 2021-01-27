@@ -1,6 +1,7 @@
 package nfsmanager
 
 import (
+	"fmt"
 	"os/exec"
 	"reflect"
 	"testing"
@@ -26,6 +27,27 @@ func Test_exportFSCommandLine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := exportFSCommandLine(tt.args.path, tt.args.host, tt.args.options); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("exportFSCommandLine() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_unExportFSCommandLine(t *testing.T) {
+	type args struct {
+		path string
+		host string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{"No Options", args{"/foo/bar", "192.168.1.1"}, []string{"exportfs", "-u", "/foo/bar:192.168.1.1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := unExportFSCommandLine(tt.args.path, tt.args.host); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("exportFSCommandLine() = %v, want %v", got, tt.want)
 			}
 		})
@@ -83,7 +105,7 @@ func Test_nfsOptions(t *testing.T) {
 	}
 }
 
-func Test_nfsManager_wxportFs(t *testing.T) {
+func Test_runAndRetryWithSudoOnFailure(t *testing.T) {
 	succeed := func(name string, arg ...string) *exec.Cmd {
 		return exec.Command("true")
 	}
@@ -97,7 +119,7 @@ func Test_nfsManager_wxportFs(t *testing.T) {
 		return fail(name, arg...)
 	}
 	type fields struct {
-		Command func(name string, arg ...string) *exec.Cmd
+		Command execCommander
 	}
 	type args struct {
 		path    string
@@ -107,20 +129,15 @@ func Test_nfsManager_wxportFs(t *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
-		args    args
 		wantErr bool
 	}{
-		// TODO: Add test cases.
-		{"Works without sudo", fields{succeed}, args{"path", "host", []nfsOption{NoRootSquash}}, false},
-		{"Works with sudo", fields{succeedOnlyWithSudo}, args{"path", "host", []nfsOption{NoRootSquash}}, false},
-		{"Fails either way", fields{fail}, args{"path", "host", []nfsOption{NoRootSquash}}, true},
+		{"Works without sudo", fields{succeed}, false},
+		{"Works with sudo", fields{succeedOnlyWithSudo}, false},
+		{"Fails either way", fields{fail}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n := nfsManager{
-				Command: tt.fields.Command,
-			}
-			if err := n.ExportFs(tt.args.path, tt.args.host, tt.args.options...); (err != nil) != tt.wantErr {
+			if err := runAndRetryWithSudoOnFailure([]string{"true"}, tt.fields.Command); (err != nil) != tt.wantErr {
 				t.Errorf("nfsManager.ExportFs() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -133,14 +150,91 @@ func TestNFSManager(t *testing.T) {
 		want *nfsManager
 	}{
 		// TODO: Add test cases.
-		{"NFSManager", &nfsManager{exec.Command}},
+		{"NFSManager", &nfsManager{Command: exec.Command}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := reflect.ValueOf(NFSManager().Command).Pointer()
 			b := reflect.ValueOf(exec.Command).Pointer()
 			if a != b {
-				t.Errorf("NFSManager() = %v, want %v", a, b)
+				t.Errorf("NFSManager's Command = %v, want %v (exec.Command)", a, b)
+			}
+		})
+	}
+}
+
+func Test_nfsManager_ExportFs(t *testing.T) {
+	type args struct {
+		path    string
+		host    string
+		options []nfsOption
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{"Success", args{"/foo/bar", "the.client", []nfsOption{}}, false},
+		{"Failure", args{"/foo/bar", "the.client", []nfsOption{}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := NFSManager()
+
+			commandRetrier := func(cmdLine []string, command execCommander) error {
+				want := exportFSCommandLine(tt.args.path, tt.args.host, tt.args.options)
+				if !reflect.DeepEqual(want, cmdLine) {
+					t.Errorf("Got cmdLine = %v, wanted %v", cmdLine, want)
+				}
+
+				if tt.wantErr {
+					return fmt.Errorf("Mock failure")
+				}
+
+				return nil
+			}
+			n.commandRetrier = commandRetrier
+
+			if err := n.ExportFs(tt.args.path, tt.args.host, tt.args.options...); (err != nil) != tt.wantErr {
+				t.Errorf("nfsManager.ExportFs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_nfsManager_UnExportFs(t *testing.T) {
+	type args struct {
+		path string
+		host string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{"Success", args{"/foo/bar", "the.client"}, false},
+		{"Failure", args{"/foo/bar", "the.client"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := NFSManager()
+
+			commandRetrier := func(cmdLine []string, command execCommander) error {
+				want := unExportFSCommandLine(tt.args.path, tt.args.host)
+				if !reflect.DeepEqual(want, cmdLine) {
+					t.Errorf("Got cmdLine = %v, wanted %v", cmdLine, want)
+				}
+
+				if tt.wantErr {
+					return fmt.Errorf("Mock failure")
+				}
+
+				return nil
+			}
+			n.commandRetrier = commandRetrier
+
+			if err := n.UnExportFs(tt.args.path, tt.args.host); (err != nil) != tt.wantErr {
+				t.Errorf("nfsManager.ExportFs() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

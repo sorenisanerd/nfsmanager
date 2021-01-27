@@ -375,30 +375,55 @@ func exportFSCommandLine(path string, host string, options []nfsOption) []string
 	return cmd
 }
 
+func unExportFSCommandLine(path string, host string) []string {
+	var exportString string = fmt.Sprintf("%s:%s", path, host)
+
+	return []string{"exportfs", "-u", exportString}
+}
+
+type execCommander func(name string, arg ...string) *exec.Cmd
+type commandRetrierWithSudo func([]string, execCommander) error
+
 type nfsManager struct {
-	Command func(name string, arg ...string) *exec.Cmd
+	Command        execCommander
+	commandRetrier commandRetrierWithSudo
 }
 
 func NFSManager() *nfsManager {
-	return &nfsManager{Command: exec.Command}
+	return &nfsManager{
+		Command:        exec.Command,
+		commandRetrier: runAndRetryWithSudoOnFailure,
+	}
 }
 
 // ExportFs will export path to host with the given options.
 // Note: The export is not persisted to /etc/exports
 func (n *nfsManager) ExportFs(path string, host string, options ...nfsOption) error {
-	cmdLine := exportFSCommandLine(path, host, options)
+	return n.commandRetrier(exportFSCommandLine(path, host, options), n.Command)
+}
 
-	cmd := n.Command(cmdLine[0], cmdLine[1:]...)
+// UnExportFs will unexport path to host with the given options.
+// Note: The export is not removed from /etc/exports if it's there
+func (n *nfsManager) UnExportFs(path string, host string) error {
+	return n.commandRetrier(unExportFSCommandLine(path, host), n.Command)
+}
+
+func runAndRetryWithSudoOnFailure(cmdLine []string, command execCommander) error {
+	cmd := command(cmdLine[0], cmdLine[1:]...)
 	_, err := cmd.CombinedOutput()
+
 	if err != nil {
 		log.Printf("Command %v failed: %s", cmd, err)
 		log.Printf("Retrying with sudo")
+
 		cmdLine = append(cmdLine, "", "")
 		copy(cmdLine[2:], cmdLine)
 		cmdLine[0] = "sudo"
 		cmdLine[1] = "-n"
-		cmd = n.Command(cmdLine[0], cmdLine[1:]...)
+
+		cmd = command(cmdLine[0], cmdLine[1:]...)
 		_, err := cmd.CombinedOutput()
+
 		if err != nil {
 			return fmt.Errorf("Command %v failed with sudo as well: %s", cmd, err)
 		}
