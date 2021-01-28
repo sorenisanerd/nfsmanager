@@ -410,10 +410,10 @@ func (n *nfsManager) UnExportFs(path string, host string) error {
 
 func runAndRetryWithSudoOnFailure(cmdLine []string, command execCommander) error {
 	cmd := command(cmdLine[0], cmdLine[1:]...)
-	_, err := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
 
 	if err != nil {
-		log.Printf("Command %v failed: %s", cmd, err)
+		log.Printf("Command '%v' failed: %s:\n%s", cmd, err, out)
 		log.Printf("Retrying with sudo")
 
 		cmdLine = append(cmdLine, "", "")
@@ -422,10 +422,12 @@ func runAndRetryWithSudoOnFailure(cmdLine []string, command execCommander) error
 		cmdLine[1] = "-n"
 
 		cmd = command(cmdLine[0], cmdLine[1:]...)
-		_, err := cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
+		_ = out
 
 		if err != nil {
-			return fmt.Errorf("Command %v failed with sudo as well: %s", cmd, err)
+			log.Printf("Command '%v' failed with sudo as well: %s:\n%s", cmd, err, out)
+			return fmt.Errorf("Command %v failed with sudo as well: %s, %w", cmd, out, err)
 		}
 	}
 	return nil
