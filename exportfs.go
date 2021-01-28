@@ -366,7 +366,7 @@ func (opt nfsOption) extrasString() string {
 }
 
 func exportFSCommandLine(path string, host string, options []nfsOption) []string {
-	var exportString string = fmt.Sprintf("%s:%s", path, host)
+	var exportString string = fmt.Sprintf("%s:%s", host, path)
 
 	cmd := []string{"exportfs", exportString}
 	if len(options) > 0 {
@@ -376,7 +376,7 @@ func exportFSCommandLine(path string, host string, options []nfsOption) []string
 }
 
 func unExportFSCommandLine(path string, host string) []string {
-	var exportString string = fmt.Sprintf("%s:%s", path, host)
+	var exportString string = fmt.Sprintf("%s:%s", host, path)
 
 	return []string{"exportfs", "-u", exportString}
 }

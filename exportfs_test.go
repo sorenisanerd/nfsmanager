@@ -18,11 +18,11 @@ func Test_exportFSCommandLine(t *testing.T) {
 		args args
 		want []string
 	}{
-		{"No Options", args{"/foo/bar", "192.168.1.1", []nfsOption{}}, []string{"exportfs", "/foo/bar:192.168.1.1"}},
-		{"One extra-less option", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash}}, []string{"exportfs", "/foo/bar:192.168.1.1", "-o", "no_root_squash"}},
-		{"Two extra-less options", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash, InsecureLocks}}, []string{"exportfs", "/foo/bar:192.168.1.1", "-o", "no_root_squash,insecure_locks"}},
-		{"Two option: one extra-less, one with extras", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash, FsID("some-id")}}, []string{"exportfs", "/foo/bar:192.168.1.1", "-o", "no_root_squash,fsid=some-id"}},
-		{"Option with multiple extras", args{"/foo/bar", "192.168.1.1", []nfsOption{Replicas("foo", "bar")}}, []string{"exportfs", "/foo/bar:192.168.1.1", "-o", "replicas=foo:bar"}},
+		{"No Options", args{"/foo/bar", "192.168.1.1", []nfsOption{}}, []string{"exportfs", "192.168.1.1:/foo/bar"}},
+		{"One extra-less option", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash}}, []string{"exportfs", "192.168.1.1:/foo/bar", "-o", "no_root_squash"}},
+		{"Two extra-less options", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash, InsecureLocks}}, []string{"exportfs", "192.168.1.1:/foo/bar", "-o", "no_root_squash,insecure_locks"}},
+		{"Two option: one extra-less, one with extras", args{"/foo/bar", "192.168.1.1", []nfsOption{NoRootSquash, FsID("some-id")}}, []string{"exportfs", "192.168.1.1:/foo/bar", "-o", "no_root_squash,fsid=some-id"}},
+		{"Option with multiple extras", args{"/foo/bar", "192.168.1.1", []nfsOption{Replicas("foo", "bar")}}, []string{"exportfs", "192.168.1.1:/foo/bar", "-o", "replicas=foo:bar"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,7 +43,7 @@ func Test_unExportFSCommandLine(t *testing.T) {
 		args args
 		want []string
 	}{
-		{"No Options", args{"/foo/bar", "192.168.1.1"}, []string{"exportfs", "-u", "/foo/bar:192.168.1.1"}},
+		{"No Options", args{"/foo/bar", "192.168.1.1"}, []string{"exportfs", "-u", "192.168.1.1:/foo/bar"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
